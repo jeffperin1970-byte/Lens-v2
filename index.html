@@ -1,0 +1,1057 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>LENS v2 — Forensic Image Enhancer</title>
+<meta name="theme-color" content="#07080a">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.json">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=Inconsolata:wght@300;400&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:      #07080a;
+  --bg2:     #0c0e12;
+  --bg3:     #11141a;
+  --border:  #1e2430;
+  --accent:  #e8c84a;
+  --accent2: #e87a4a;
+  --accent3: #4ae8c8;
+  --text:    #d0d8e8;
+  --dim:     #485060;
+  --mono:    'Inconsolata', monospace;
+  --head:    'Syne', sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--head);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background:
+    radial-gradient(ellipse 70% 50% at 10% 90%, rgba(232,200,74,0.04) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 70% at 90% 10%, rgba(74,232,200,0.03) 0%, transparent 60%);
+  pointer-events: none; z-index: 0;
+}
+
+/* ── HEADER ── */
+header {
+  position: relative; z-index: 10;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(232,200,74,0.04) 0%, transparent 100%);
+}
+.logo { font-size: 26px; font-weight: 800; letter-spacing: 5px; color: var(--accent); text-shadow: 0 0 30px rgba(232,200,74,0.3); }
+.logo span { color: var(--dim); font-weight: 400; }
+.tagline { font-family: var(--mono); font-size: 9px; color: var(--dim); letter-spacing: 3px; margin-top: 2px; }
+.status-pill {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 2px;
+  padding: 5px 12px; border: 1px solid var(--border);
+  border-radius: 20px; color: var(--dim); background: var(--bg2);
+  transition: all 0.3s;
+}
+.status-pill.active { border-color: var(--accent3); color: var(--accent3); box-shadow: 0 0 12px rgba(74,232,200,0.15); }
+.status-pill.processing { border-color: var(--accent); color: var(--accent); animation: blink 0.8s ease-in-out infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+/* ── LAYOUT ── */
+.app { position: relative; z-index: 1; display: flex; flex-direction: column; min-height: calc(100vh - 57px); }
+
+/* ── DROP ZONE ── */
+.drop-zone {
+  margin: 20px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  padding: 48px 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: var(--bg2);
+}
+.drop-zone:hover, .drop-zone.drag-over {
+  border-color: var(--accent);
+  background: rgba(232,200,74,0.04);
+}
+.drop-zone .dz-icon { font-size: 42px; margin-bottom: 12px; }
+.drop-zone h2 { font-size: 20px; font-weight: 800; letter-spacing: 4px; color: var(--accent); }
+.drop-zone p { font-family: var(--mono); font-size: 11px; color: var(--dim); margin-top: 6px; letter-spacing: 1px; }
+.drop-zone input { display: none; }
+.drop-zone.hidden { display: none; }
+
+/* ── WORKSPACE ── */
+.workspace { display: none; flex-direction: column; flex: 1; }
+.workspace.visible { display: flex; }
+
+/* ── VIEWER ── */
+.viewer-wrap {
+  position: relative;
+  margin: 16px 16px 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  background: #000;
+  min-height: 220px;
+  touch-action: none;
+}
+#viewerCanvas { display: block; width: 100%; height: auto; max-height: 55vh; object-fit: contain; }
+
+/* Split divider */
+.split-divider {
+  position: absolute; top: 0; bottom: 0;
+  width: 2px; background: var(--accent);
+  box-shadow: 0 0 12px rgba(232,200,74,0.6);
+  cursor: ew-resize; z-index: 10;
+  transform: translateX(-50%);
+}
+.split-handle {
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--accent); border: 2px solid var(--bg);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; color: var(--bg); font-weight: 800;
+}
+.split-label {
+  position: absolute; bottom: 8px;
+  font-family: var(--mono); font-size: 9px; letter-spacing: 2px;
+  padding: 3px 8px; border-radius: 2px; pointer-events: none;
+}
+.split-label.orig { left: 8px; background: rgba(0,0,0,0.6); color: var(--dim); }
+.split-label.enhanced { right: 8px; background: rgba(232,200,74,0.15); color: var(--accent); }
+
+/* Zoom overlay */
+.zoom-info {
+  position: absolute; top: 8px; right: 8px;
+  font-family: var(--mono); font-size: 9px; letter-spacing: 1px;
+  color: var(--accent3); background: rgba(0,0,0,0.6);
+  padding: 3px 8px; border-radius: 2px;
+}
+
+/* ── CONTROLS ── */
+.controls { padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; }
+
+/* Stack counter */
+.stack-display {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 4px; padding: 10px 14px;
+}
+.stack-count { font-size: 36px; font-weight: 800; color: var(--accent); line-height: 1; }
+.stack-label { font-family: var(--mono); font-size: 9px; color: var(--dim); letter-spacing: 2px; margin-top: 2px; }
+.stack-btns { display: flex; gap: 6px; }
+.stack-btn {
+  width: 36px; height: 36px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--bg3);
+  color: var(--text); font-size: 20px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s; font-family: var(--mono);
+}
+.stack-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Slider rows */
+.slider-section { background: var(--bg2); border: 1px solid var(--border); border-radius: 4px; padding: 12px; }
+.slider-section-title {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 3px;
+  color: var(--dim); margin-bottom: 10px; display: flex; align-items: center; gap: 8px;
+}
+.slider-section-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.slider-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.slider-row:last-child { margin-bottom: 0; }
+.slider-row label { font-family: var(--mono); font-size: 10px; color: var(--dim); min-width: 90px; letter-spacing: 1px; }
+.slider-row input[type=range] {
+  flex: 1; -webkit-appearance: none; appearance: none;
+  height: 2px; background: var(--border); border-radius: 2px;
+  outline: none; cursor: pointer;
+}
+.slider-row input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 16px; height: 16px;
+  border-radius: 50%; background: var(--bg);
+  border: 2px solid var(--accent); cursor: pointer;
+}
+.slider-row .val { font-family: var(--mono); font-size: 10px; color: var(--accent); min-width: 36px; text-align: right; }
+
+/* Toggle */
+.toggle-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.toggle-row:last-child { margin-bottom: 0; }
+.toggle-row label { font-family: var(--mono); font-size: 10px; color: var(--dim); letter-spacing: 1px; }
+.sw { position: relative; display: inline-block; width: 38px; height: 20px; flex-shrink: 0; }
+.sw input { opacity: 0; width: 0; height: 0; }
+.sw-s { position: absolute; inset: 0; background: var(--border); border-radius: 20px; cursor: pointer; transition: 0.2s; }
+.sw-s::before { content: ''; position: absolute; width: 14px; height: 14px; left: 3px; top: 3px; background: var(--dim); border-radius: 50%; transition: 0.2s; }
+.sw input:checked + .sw-s { background: rgba(232,200,74,0.2); }
+.sw input:checked + .sw-s::before { transform: translateX(18px); background: var(--accent); box-shadow: 0 0 8px rgba(232,200,74,0.4); }
+
+/* Presets */
+.preset-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.preset-card {
+  background: var(--bg3); border: 1px solid var(--border);
+  border-radius: 3px; padding: 10px; cursor: pointer;
+  transition: all 0.15s; text-align: center;
+}
+.preset-card:hover { border-color: var(--accent); background: rgba(232,200,74,0.05); }
+.preset-card.active { border-color: var(--accent); background: rgba(232,200,74,0.08); }
+.preset-card .p-icon { font-size: 18px; margin-bottom: 4px; }
+.preset-card .p-name { font-family: var(--mono); font-size: 9px; letter-spacing: 2px; color: var(--text); }
+.preset-card.active .p-name { color: var(--accent); }
+
+/* Action buttons */
+.action-row { display: flex; gap: 8px; }
+.action-btn {
+  flex: 1; padding: 13px; border-radius: 3px;
+  font-family: var(--mono); font-size: 11px; letter-spacing: 3px;
+  cursor: pointer; transition: all 0.2s; text-transform: uppercase; border: 1px solid;
+}
+.action-btn.enhance {
+  background: rgba(232,200,74,0.1); border-color: var(--accent); color: var(--accent);
+}
+.action-btn.enhance:hover { background: rgba(232,200,74,0.2); box-shadow: 0 0 20px rgba(232,200,74,0.15); }
+.action-btn.enhance:active { transform: scale(0.98); }
+.action-btn.export {
+  background: rgba(74,232,200,0.08); border-color: var(--accent3); color: var(--accent3);
+}
+.action-btn.export:hover { background: rgba(74,232,200,0.15); }
+.action-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+/* Progress */
+.progress-wrap { display: none; background: var(--bg2); border: 1px solid var(--border); border-radius: 4px; padding: 12px; }
+.progress-wrap.visible { display: block; }
+.progress-label { font-family: var(--mono); font-size: 10px; color: var(--accent); letter-spacing: 2px; margin-bottom: 8px; animation: blink 0.8s infinite; }
+.progress-track { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+.progress-fill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 2px; transition: width 0.15s; box-shadow: 0 0 8px rgba(232,200,74,0.4); }
+
+/* Histogram */
+.histogram-wrap { background: var(--bg2); border: 1px solid var(--border); border-radius: 4px; padding: 10px; }
+.histogram-title { font-family: var(--mono); font-size: 9px; color: var(--dim); letter-spacing: 2px; margin-bottom: 6px; }
+#histCanvas { width: 100%; height: 48px; display: block; border-radius: 2px; }
+
+/* Info box */
+.info-row {
+  display: flex; gap: 8px; flex-wrap: wrap;
+}
+.info-chip {
+  font-family: var(--mono); font-size: 9px; letter-spacing: 1px;
+  padding: 4px 10px; border: 1px solid var(--border);
+  border-radius: 2px; color: var(--dim); background: var(--bg3);
+}
+.info-chip span { color: var(--accent3); }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="logo">LENS<span> //</span></div>
+    <div class="tagline">FORENSIC IMAGE ENHANCEMENT SYSTEM v2.0</div>
+  </div>
+  <div class="status-pill" id="statusPill">READY</div>
+</header>
+
+<div class="app">
+
+  <!-- DROP ZONE -->
+  <div class="drop-zone" id="dropZone">
+    <div class="dz-icon">🔍</div>
+    <h2>LOAD IMAGE</h2>
+    <p>TAP TO SELECT — JPG · PNG · WEBP · BMP</p>
+    <input type="file" id="fileInput" accept="image/*">
+  </div>
+
+  <!-- WORKSPACE -->
+  <div class="workspace" id="workspace">
+
+    <!-- VIEWER -->
+    <div class="viewer-wrap" id="viewerWrap">
+      <canvas id="viewerCanvas"></canvas>
+      <div class="split-divider" id="splitDivider" style="left:50%">
+        <div class="split-handle">⟺</div>
+      </div>
+      <div class="split-label orig">ORIGINAL</div>
+      <div class="split-label enhanced">ENHANCED</div>
+      <div class="zoom-info" id="zoomInfo">1×</div>
+    </div>
+
+    <div class="controls">
+
+      <!-- INFO ROW -->
+      <div class="info-row" id="infoRow"></div>
+
+      <!-- STACK COUNTER -->
+      <div class="stack-display">
+        <div>
+          <div class="stack-count" id="stackCount">10</div>
+          <div class="stack-label">STACK LAYERS</div>
+        </div>
+        <div class="stack-btns">
+          <button class="stack-btn" onclick="adjustStack(-10)">−</button>
+          <button class="stack-btn" onclick="adjustStack(10)">+</button>
+        </div>
+      </div>
+
+      <!-- PRESETS -->
+      <div class="slider-section">
+        <div class="slider-section-title">SURFACE PRESETS</div>
+        <div class="preset-grid">
+          <div class="preset-card active" onclick="applyPreset('glass',this)" id="p_glass">
+            <div class="p-icon">🪟</div>
+            <div class="p-name">GLASS</div>
+          </div>
+          <div class="preset-card" onclick="applyPreset('mirror',this)" id="p_mirror">
+            <div class="p-icon">🪞</div>
+            <div class="p-name">MIRROR</div>
+          </div>
+          <div class="preset-card" onclick="applyPreset('screen',this)" id="p_screen">
+            <div class="p-icon">📱</div>
+            <div class="p-name">SCREEN</div>
+          </div>
+          <div class="preset-card" onclick="applyPreset('wet',this)" id="p_wet">
+            <div class="p-icon">💧</div>
+            <div class="p-name">WET SURFACE</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ENHANCEMENT SLIDERS -->
+      <div class="slider-section">
+        <div class="slider-section-title">ENHANCEMENT</div>
+        <div class="slider-row">
+          <label>SHARPEN</label>
+          <input type="range" min="0" max="100" value="60" id="sharpen" oninput="updateVal(this,'sharpenVal')">
+          <span class="val" id="sharpenVal">60</span>
+        </div>
+        <div class="slider-row">
+          <label>DEBLUR</label>
+          <input type="range" min="0" max="100" value="40" id="deblur" oninput="updateVal(this,'deblurVal')">
+          <span class="val" id="deblurVal">40</span>
+        </div>
+        <div class="slider-row">
+          <label>CONTRAST</label>
+          <input type="range" min="0" max="100" value="50" id="contrast" oninput="updateVal(this,'contrastVal')">
+          <span class="val" id="contrastVal">50</span>
+        </div>
+        <div class="slider-row">
+          <label>CLARITY</label>
+          <input type="range" min="0" max="100" value="50" id="clarity" oninput="updateVal(this,'clarityVal')">
+          <span class="val" id="clarityVal">50</span>
+        </div>
+        <div class="slider-row">
+          <label>SHADOWS</label>
+          <input type="range" min="-100" max="100" value="20" id="shadows" oninput="updateVal(this,'shadowsVal')">
+          <span class="val" id="shadowsVal">20</span>
+        </div>
+        <div class="slider-row">
+          <label>HIGHLIGHTS</label>
+          <input type="range" min="-100" max="100" value="-20" id="highlights" oninput="updateVal(this,'highlightsVal')">
+          <span class="val" id="highlightsVal">-20</span>
+        </div>
+      </div>
+
+      <!-- REFLECTION TOOLS -->
+      <div class="slider-section">
+        <div class="slider-section-title">REFLECTION TOOLS</div>
+        <div class="toggle-row">
+          <label>DEGLARE</label>
+          <label class="sw"><input type="checkbox" id="deglare" checked><span class="sw-s"></span></label>
+        </div>
+        <div class="toggle-row">
+          <label>SURFACE FLATTEN</label>
+          <label class="sw"><input type="checkbox" id="flatten" checked><span class="sw-s"></span></label>
+        </div>
+        <div class="toggle-row">
+          <label>EDGE RECOVER</label>
+          <label class="sw"><input type="checkbox" id="edgeRecover" checked><span class="sw-s"></span></label>
+        </div>
+        <div class="toggle-row">
+          <label>NOISE REDUCE</label>
+          <label class="sw"><input type="checkbox" id="noiseReduce" checked><span class="sw-s"></span></label>
+        </div>
+        <div class="slider-row" style="margin-top:8px;">
+          <label>DEGLARE STR</label>
+          <input type="range" min="0" max="100" value="50" id="deglareStr" oninput="updateVal(this,'deglareStrVal')">
+          <span class="val" id="deglareStrVal">50</span>
+        </div>
+      </div>
+
+
+      <!-- LIVE PREVIEW -->
+      <div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:10px 14px;margin-bottom:0;">
+        <div>
+          <div style="font-family:var(--mono);font-size:10px;color:var(--text);letter-spacing:2px;">LIVE PREVIEW</div>
+          <div style="font-family:var(--mono);font-size:9px;color:var(--dim);margin-top:2px;">See changes before committing</div>
+        </div>
+        <label class="sw"><input type="checkbox" id="livePreview" onchange="onLivePreviewToggle()"><span class="sw-s"></span></label>
+      </div>
+
+      <!-- HISTOGRAM -->
+      <div class="histogram-wrap">
+        <div class="histogram-title">LUMINANCE HISTOGRAM</div>
+        <canvas id="histCanvas"></canvas>
+      </div>
+
+      <!-- PROGRESS -->
+      <div class="progress-wrap" id="progressWrap">
+        <div class="progress-label" id="progressLabel">PROCESSING...</div>
+        <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+      </div>
+
+      <!-- ACTIONS -->
+      <div class="action-row">
+        <button class="action-btn enhance" id="enhanceBtn" onclick="runEnhancement()">⬡ ENHANCE</button>
+        <button class="action-btn export" id="exportBtn" onclick="exportImage()" disabled>⬇ SAVE</button>
+      </div>
+      <div class="action-row" style="margin-top:0;">
+        <button class="action-btn" style="border-color:var(--accent2);color:var(--accent2);background:rgba(232,122,74,0.08);" onclick="undoEnhancement()">↩ UNDO</button>
+        <button class="action-btn" style="border-color:var(--border);color:var(--dim);" onclick="resetToOriginal()">✕ RESET</button>
+        <button class="action-btn" style="border-color:var(--border);color:var(--dim);" onclick="loadNewImage()">📂 NEW</button>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+<input type="file" id="newImgInput" accept="image/*" style="display:none">
+
+<script>
+// ════════════════════════════════════════════════════════
+//  LENS v1 — Forensic Image Enhancer
+// ════════════════════════════════════════════════════════
+
+let originalImage = null;
+let originalImageData = null;
+let enhancedImageData = null;
+let stackLayers = 10;
+let splitX = 0.5;
+let isDraggingSplit = false;
+let currentPreset = 'glass';
+
+
+// ── UNDO / RESET / NEW ───────────────────────────────────
+let undoStack = [];
+
+function pushUndo() {
+  if (enhancedImageData) {
+    const copy = new ImageData(
+      new Uint8ClampedArray(enhancedImageData.data),
+      enhancedImageData.width, enhancedImageData.height
+    );
+    undoStack.push(copy);
+    if (undoStack.length > 10) undoStack.shift();
+  }
+}
+
+function undoEnhancement() {
+  if (undoStack.length === 0) {
+    resetToOriginal();
+    return;
+  }
+  enhancedImageData = undoStack.pop();
+  renderSplit();
+  drawHistogram(enhancedImageData);
+  setStatus('UNDONE', true);
+}
+
+function resetToOriginal() {
+  enhancedImageData = null;
+  undoStack = [];
+  renderSplit();
+  if (originalImageData) drawHistogram(originalImageData);
+  document.getElementById('exportBtn').disabled = true;
+  setStatus('RESET TO ORIGINAL', true);
+}
+
+function loadNewImage() {
+  document.getElementById('newImgInput').click();
+}
+document.addEventListener('DOMContentLoaded', () => {
+  const ni = document.getElementById('newImgInput');
+  if (ni) ni.onchange = e => { if (e.target.files[0]) { loadImageFile(e.target.files[0]); e.target.value=''; } };
+});
+
+// ── LIVE PREVIEW ─────────────────────────────────────────
+let livePreviewTimer = null;
+
+function onLivePreviewToggle() {
+  const on = document.getElementById('livePreview').checked;
+  if (on) {
+    // Attach input listeners to all sliders
+    document.querySelectorAll('.slider-row input[type=range], .toggle-row input[type=checkbox]').forEach(el => {
+      el.addEventListener('input', triggerLivePreview);
+      el.addEventListener('change', triggerLivePreview);
+    });
+    setStatus('LIVE PREVIEW ON', true);
+  } else {
+    document.querySelectorAll('.slider-row input[type=range], .toggle-row input[type=checkbox]').forEach(el => {
+      el.removeEventListener('input', triggerLivePreview);
+      el.removeEventListener('change', triggerLivePreview);
+    });
+    setStatus('LIVE PREVIEW OFF', false);
+  }
+}
+
+function triggerLivePreview() {
+  clearTimeout(livePreviewTimer);
+  livePreviewTimer = setTimeout(() => {
+    if (originalImageData) {
+      pushUndo();
+      runEnhancement();
+    }
+  }, 600);
+}
+
+// ── FILE LOADING ─────────────────────────────────────────
+function loadImageFile(file) {
+  if (!file || !file.type.startsWith('image/')) {
+    setStatus('ERROR: NOT AN IMAGE FILE', false);
+    return;
+  }
+  setStatus('LOADING...', 'processing');
+  const reader = new FileReader();
+  reader.onload = e => {
+    const img = new Image();
+    img.onload = () => {
+      originalImage = img;
+      initWorkspace(img);
+    };
+    img.onerror = () => setStatus('ERROR: COULD NOT LOAD IMAGE', false);
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+document.getElementById('fileInput').onchange = e => {
+  if (e.target.files[0]) loadImageFile(e.target.files[0]);
+  e.target.value = '';
+};
+
+const dropZone = document.getElementById('dropZone');
+dropZone.addEventListener('click', () => document.getElementById('fileInput').click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  if (e.dataTransfer.files[0]) loadImageFile(e.dataTransfer.files[0]);
+});
+
+// ── INIT WORKSPACE ───────────────────────────────────────
+function initWorkspace(img) {
+  document.getElementById('dropZone').classList.add('hidden');
+  document.getElementById('workspace').classList.add('visible');
+
+  const canvas = document.getElementById('viewerCanvas');
+  const maxW = canvas.parentElement.offsetWidth;
+  const maxH = Math.min(window.innerHeight * 0.55, 500);
+  const scale = Math.min(maxW / img.width, maxH / img.height, 1);
+  canvas.width = Math.round(img.width * scale);
+  canvas.height = Math.round(img.height * scale);
+
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  originalImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+  // Info chips
+  document.getElementById('infoRow').innerHTML = `
+    <div class="info-chip">SIZE <span>${img.width}×${img.height}</span></div>
+    <div class="info-chip">DISPLAY <span>${canvas.width}×${canvas.height}</span></div>
+    <div class="info-chip">LAYERS <span id="layerChip">${stackLayers}</span></div>
+  `;
+
+  drawHistogram(originalImageData);
+  setStatus('IMAGE LOADED', true);
+  splitX = 0.5;
+  updateSplitDivider();
+  initSplitDrag();
+}
+
+// ── SPLIT DIVIDER ────────────────────────────────────────
+function updateSplitDivider() {
+  const canvas = document.getElementById('viewerCanvas');
+  const wrap = document.getElementById('viewerWrap');
+  const divider = document.getElementById('splitDivider');
+  const pct = (splitX * canvas.offsetWidth / wrap.offsetWidth) * 100;
+  divider.style.left = pct + '%';
+  renderSplit();
+}
+
+function renderSplit() {
+  if (!originalImageData) return;
+  const canvas = document.getElementById('viewerCanvas');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const splitPx = Math.round(splitX * W);
+
+  // Draw original on left
+  ctx.putImageData(originalImageData, 0, 0);
+
+  // Draw enhanced on right
+  if (enhancedImageData) {
+    const tmp = document.createElement('canvas');
+    tmp.width = W; tmp.height = H;
+    tmp.getContext('2d').putImageData(enhancedImageData, 0, 0);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(splitPx, 0, W - splitPx, H);
+    ctx.clip();
+    ctx.drawImage(tmp, 0, 0);
+    ctx.restore();
+  }
+
+  // Split line
+  ctx.save();
+  ctx.strokeStyle = 'rgba(232,200,74,0.8)';
+  ctx.lineWidth = 1.5;
+  ctx.shadowColor = 'rgba(232,200,74,0.5)';
+  ctx.shadowBlur = 6;
+  ctx.beginPath();
+  ctx.moveTo(splitPx, 0);
+  ctx.lineTo(splitPx, H);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function initSplitDrag() {
+  const divider = document.getElementById('splitDivider');
+  const wrap = document.getElementById('viewerWrap');
+  const canvas = document.getElementById('viewerCanvas');
+
+  function getX(e) {
+    const rect = wrap.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    return (clientX - rect.left) / canvas.offsetWidth;
+  }
+
+  function onMove(e) {
+    e.preventDefault();
+    splitX = Math.max(0.05, Math.min(0.95, getX(e)));
+    updateSplitDivider();
+  }
+
+  function onEnd() {
+    isDraggingSplit = false;
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onEnd);
+    document.removeEventListener('touchmove', onMove);
+    document.removeEventListener('touchend', onEnd);
+  }
+
+  divider.addEventListener('mousedown', e => {
+    e.preventDefault();
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onEnd);
+  });
+  divider.addEventListener('touchstart', e => {
+    e.preventDefault();
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onEnd);
+  }, { passive: false });
+}
+
+// ── STACK CONTROL ────────────────────────────────────────
+function adjustStack(delta) {
+  stackLayers = Math.max(10, Math.min(100, stackLayers + delta));
+  document.getElementById('stackCount').textContent = stackLayers;
+  const chip = document.getElementById('layerChip');
+  if (chip) chip.textContent = stackLayers;
+}
+
+// ── PRESETS ──────────────────────────────────────────────
+const PRESETS = {
+  glass:  { sharpen:65, deblur:45, contrast:55, clarity:60, shadows:25, highlights:-30, deglareStr:60, deglare:true, flatten:true, edgeRecover:true, noiseReduce:true },
+  mirror: { sharpen:70, deblur:50, contrast:60, clarity:55, shadows:15, highlights:-40, deglareStr:75, deglare:true, flatten:false, edgeRecover:true, noiseReduce:false },
+  screen: { sharpen:80, deblur:60, contrast:70, clarity:70, shadows:30, highlights:-20, deglareStr:40, deglare:true, flatten:true, edgeRecover:true, noiseReduce:true },
+  wet:    { sharpen:55, deblur:35, contrast:65, clarity:50, shadows:40, highlights:-15, deglareStr:50, deglare:true, flatten:true, edgeRecover:false, noiseReduce:true },
+};
+
+function applyPreset(name, el) {
+  currentPreset = name;
+  document.querySelectorAll('.preset-card').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  const p = PRESETS[name];
+  ['sharpen','deblur','contrast','clarity','shadows','highlights','deglareStr'].forEach(k => {
+    const sl = document.getElementById(k);
+    if (sl) { sl.value = p[k]; updateVal(sl, k+'Val'); }
+  });
+  ['deglare','flatten','edgeRecover','noiseReduce'].forEach(k => {
+    const cb = document.getElementById(k);
+    if (cb) cb.checked = p[k];
+  });
+}
+
+// ── ENHANCEMENT ENGINE ───────────────────────────────────
+async function runEnhancement() {
+  if (!originalImageData) return;
+  pushUndo();
+  showProgress('INITIALIZING...', 0);
+  setStatus('PROCESSING', 'processing');
+
+  await sleep(30);
+  const src = originalImageData;
+  const W = src.width, H = src.height;
+
+  const sharpen   = parseInt(document.getElementById('sharpen').value) / 100;
+  const deblurAmt = parseInt(document.getElementById('deblur').value) / 100;
+  const contrastAmt = parseInt(document.getElementById('contrast').value) / 100;
+  const clarityAmt = parseInt(document.getElementById('clarity').value) / 100;
+  const shadowsAmt = parseInt(document.getElementById('shadows').value) / 100;
+  const highlightsAmt = parseInt(document.getElementById('highlights').value) / 100;
+  const deglareAmt = parseInt(document.getElementById('deglareStr').value) / 100;
+  const doDeglare = document.getElementById('deglare').checked;
+  const doFlatten = document.getElementById('flatten').checked;
+  const doEdge = document.getElementById('edgeRecover').checked;
+  const doNoise = document.getElementById('noiseReduce').checked;
+
+  // Step 1: Synthetic stacking — average multiple micro-shifted copies
+  showProgress('STACKING ' + stackLayers + ' LAYERS...', 10);
+  await sleep(20);
+  let stacked = stackImage(src.data, W, H, stackLayers);
+
+  // Step 2: Noise reduction (median-like blur)
+  if (doNoise) {
+    showProgress('REDUCING NOISE...', 25);
+    await sleep(20);
+    stacked = gaussianBlur(stacked, W, H, 0.6);
+  }
+
+  // Step 3: Deblur (unsharp mask + laplacian)
+  if (deblurAmt > 0) {
+    showProgress('DEBLURRING...', 40);
+    await sleep(20);
+    stacked = unsharpMask(stacked, W, H, deblurAmt * 2.5, deblurAmt * 0.8);
+  }
+
+  // Step 4: Sharpening
+  if (sharpen > 0) {
+    showProgress('SHARPENING...', 55);
+    await sleep(20);
+    stacked = sharpenPass(stacked, W, H, sharpen);
+  }
+
+  // Step 5: Deglare
+  if (doDeglare && deglareAmt > 0) {
+    showProgress('REMOVING GLARE...', 65);
+    await sleep(20);
+    stacked = deglarePass(stacked, W, H, deglareAmt);
+  }
+
+  // Step 6: Surface flatten
+  if (doFlatten) {
+    showProgress('FLATTENING SURFACE...', 72);
+    await sleep(20);
+    stacked = flattenSurface(stacked, W, H);
+  }
+
+  // Step 7: Edge recovery
+  if (doEdge) {
+    showProgress('RECOVERING EDGES...', 80);
+    await sleep(20);
+    stacked = edgeRecover(stacked, W, H, clarityAmt);
+  }
+
+  // Step 8: Tone adjustments
+  showProgress('TONE MAPPING...', 88);
+  await sleep(20);
+  stacked = toneMap(stacked, W, H, contrastAmt, shadowsAmt, highlightsAmt);
+
+  // Step 9: Build final ImageData
+  showProgress('FINALIZING...', 95);
+  await sleep(20);
+  const canvas = document.getElementById('viewerCanvas');
+  const ctx = canvas.getContext('2d');
+  enhancedImageData = ctx.createImageData(W, H);
+  enhancedImageData.data.set(stacked);
+
+  hideProgress();
+  renderSplit();
+  drawHistogram(enhancedImageData);
+  document.getElementById('exportBtn').disabled = false;
+  setStatus('ENHANCED', true);
+}
+
+// ── IMAGE PROCESSING FUNCTIONS ───────────────────────────
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// Synthetic stacking: average micro-shifted versions
+function stackImage(data, W, H, layers) {
+  const result = new Float32Array(W * H * 4);
+  const shifts = [];
+  for (let i = 0; i < layers; i++) {
+    const angle = (i / layers) * Math.PI * 2;
+    const radius = (i / layers) * 1.5; // max 1.5px shift
+    shifts.push([Math.cos(angle) * radius, Math.sin(angle) * radius]);
+  }
+  for (const [dx, dy] of shifts) {
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const srcX = Math.round(x + dx);
+        const srcY = Math.round(y + dy);
+        const si = (Math.max(0, Math.min(H-1, srcY)) * W + Math.max(0, Math.min(W-1, srcX))) * 4;
+        const di = (y * W + x) * 4;
+        result[di]   += data[si];
+        result[di+1] += data[si+1];
+        result[di+2] += data[si+2];
+        result[di+3] += data[si+3];
+      }
+    }
+  }
+  const out = new Uint8ClampedArray(W * H * 4);
+  for (let i = 0; i < out.length; i++) out[i] = result[i] / layers;
+  return out;
+}
+
+// Gaussian blur
+function gaussianBlur(data, W, H, radius) {
+  const kernel = makeGaussianKernel(radius);
+  const k = kernel.length;
+  const half = Math.floor(k / 2);
+  const tmp = new Uint8ClampedArray(data.length);
+  // Horizontal
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      let r=0,g=0,b=0,a=0,wt=0;
+      for (let i = 0; i < k; i++) {
+        const sx = Math.max(0, Math.min(W-1, x + i - half));
+        const idx = (y * W + sx) * 4;
+        r += data[idx] * kernel[i];
+        g += data[idx+1] * kernel[i];
+        b += data[idx+2] * kernel[i];
+        a += data[idx+3] * kernel[i];
+        wt += kernel[i];
+      }
+      const oi = (y * W + x) * 4;
+      tmp[oi]=r/wt; tmp[oi+1]=g/wt; tmp[oi+2]=b/wt; tmp[oi+3]=a/wt;
+    }
+  }
+  const out = new Uint8ClampedArray(data.length);
+  // Vertical
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      let r=0,g=0,b=0,a=0,wt=0;
+      for (let i = 0; i < k; i++) {
+        const sy = Math.max(0, Math.min(H-1, y + i - half));
+        const idx = (sy * W + x) * 4;
+        r += tmp[idx] * kernel[i];
+        g += tmp[idx+1] * kernel[i];
+        b += tmp[idx+2] * kernel[i];
+        a += tmp[idx+3] * kernel[i];
+        wt += kernel[i];
+      }
+      const oi = (y * W + x) * 4;
+      out[oi]=r/wt; out[oi+1]=g/wt; out[oi+2]=b/wt; out[oi+3]=a/wt;
+    }
+  }
+  return out;
+}
+
+function makeGaussianKernel(radius) {
+  const size = Math.max(3, Math.round(radius * 3) * 2 + 1);
+  const sigma = radius;
+  const k = [];
+  for (let i = 0; i < size; i++) {
+    const x = i - Math.floor(size/2);
+    k.push(Math.exp(-(x*x) / (2*sigma*sigma)));
+  }
+  return k;
+}
+
+// Unsharp mask (deblur)
+function unsharpMask(data, W, H, amount, radius) {
+  const blurred = gaussianBlur(data, W, H, Math.max(0.5, radius * 3));
+  const out = new Uint8ClampedArray(data.length);
+  for (let i = 0; i < data.length; i += 4) {
+    for (let c = 0; c < 3; c++) {
+      const diff = data[i+c] - blurred[i+c];
+      out[i+c] = Math.max(0, Math.min(255, data[i+c] + diff * amount));
+    }
+    out[i+3] = data[i+3];
+  }
+  return out;
+}
+
+// Sharpen (laplacian)
+function sharpenPass(data, W, H, amount) {
+  const kernel = [0,-1,0,-1,5,-1,0,-1,0];
+  const out = new Uint8ClampedArray(data.length);
+  const blend = amount * 0.7;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const oi = (y * W + x) * 4;
+      let r=0,g=0,b=0;
+      for (let ky = -1; ky <= 1; ky++) {
+        for (let kx = -1; kx <= 1; kx++) {
+          const sx = Math.max(0, Math.min(W-1, x+kx));
+          const sy = Math.max(0, Math.min(H-1, y+ky));
+          const si = (sy*W+sx)*4;
+          const kv = kernel[(ky+1)*3+(kx+1)];
+          r += data[si]*kv; g += data[si+1]*kv; b += data[si+2]*kv;
+        }
+      }
+      out[oi]   = Math.max(0, Math.min(255, data[oi]   * (1-blend) + r * blend));
+      out[oi+1] = Math.max(0, Math.min(255, data[oi+1] * (1-blend) + g * blend));
+      out[oi+2] = Math.max(0, Math.min(255, data[oi+2] * (1-blend) + b * blend));
+      out[oi+3] = data[oi+3];
+    }
+  }
+  return out;
+}
+
+// Deglare — reduce specular highlights
+function deglarePass(data, W, H, amount) {
+  const out = new Uint8ClampedArray(data);
+  const threshold = 255 - (amount * 120);
+  for (let i = 0; i < data.length; i += 4) {
+    const lum = 0.299*data[i] + 0.587*data[i+1] + 0.114*data[i+2];
+    if (lum > threshold) {
+      const factor = 1 - ((lum - threshold) / (255 - threshold)) * amount * 0.7;
+      out[i]   = Math.round(data[i]   * factor);
+      out[i+1] = Math.round(data[i+1] * factor);
+      out[i+2] = Math.round(data[i+2] * factor);
+    }
+  }
+  return out;
+}
+
+// Surface flatten — reduce low-frequency illumination variation
+function flattenSurface(data, W, H) {
+  const blurred = gaussianBlur(data, W, H, Math.min(W, H) * 0.08);
+  const out = new Uint8ClampedArray(data.length);
+  for (let i = 0; i < data.length; i += 4) {
+    for (let c = 0; c < 3; c++) {
+      const normalized = (data[i+c] / (blurred[i+c] + 1)) * 128;
+      out[i+c] = Math.max(0, Math.min(255, normalized));
+    }
+    out[i+3] = data[i+3];
+  }
+  return out;
+}
+
+// Edge recovery — boost edges
+function edgeRecover(data, W, H, amount) {
+  const edges = new Uint8ClampedArray(data.length);
+  // Sobel
+  for (let y = 1; y < H-1; y++) {
+    for (let x = 1; x < W-1; x++) {
+      const idx = (y*W+x)*4;
+      let gx=0, gy=0;
+      const sobelX = [-1,0,1,-2,0,2,-1,0,1];
+      const sobelY = [-1,-2,-1,0,0,0,1,2,1];
+      for (let ky=-1;ky<=1;ky++) {
+        for (let kx=-1;kx<=1;kx++) {
+          const si = ((y+ky)*W+(x+kx))*4;
+          const lum = 0.299*data[si]+0.587*data[si+1]+0.114*data[si+2];
+          const ki = (ky+1)*3+(kx+1);
+          gx += lum*sobelX[ki];
+          gy += lum*sobelY[ki];
+        }
+      }
+      const mag = Math.min(255, Math.sqrt(gx*gx+gy*gy));
+      edges[idx]=edges[idx+1]=edges[idx+2]=mag;
+      edges[idx+3]=255;
+    }
+  }
+  const out = new Uint8ClampedArray(data.length);
+  const blend = amount * 0.5;
+  for (let i = 0; i < data.length; i+=4) {
+    for (let c=0;c<3;c++) out[i+c] = Math.max(0,Math.min(255, data[i+c] + edges[i+c]*blend));
+    out[i+3]=data[i+3];
+  }
+  return out;
+}
+
+// Tone mapping
+function toneMap(data, W, H, contrast, shadows, highlights) {
+  const out = new Uint8ClampedArray(data.length);
+  const contrastFactor = (259 * (contrast * 128 + 255)) / (255 * (259 - contrast * 128));
+  for (let i = 0; i < data.length; i += 4) {
+    for (let c = 0; c < 3; c++) {
+      let v = data[i+c];
+      // Contrast
+      v = Math.max(0, Math.min(255, contrastFactor * (v - 128) + 128));
+      // Shadows lift
+      if (v < 128 && shadows !== 0) v = Math.max(0, Math.min(255, v + shadows * 60 * (1 - v/128)));
+      // Highlights roll
+      if (v > 128 && highlights !== 0) v = Math.max(0, Math.min(255, v + highlights * 60 * ((v-128)/128)));
+      out[i+c] = v;
+    }
+    out[i+3] = data[i+3];
+  }
+  return out;
+}
+
+// ── HISTOGRAM ────────────────────────────────────────────
+function drawHistogram(imgData) {
+  const canvas = document.getElementById('histCanvas');
+  canvas.width = canvas.offsetWidth;
+  canvas.height = 48;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#07080a';
+  ctx.fillRect(0, 0, canvas.width, 48);
+
+  const bins = new Array(256).fill(0);
+  for (let i = 0; i < imgData.data.length; i += 4) {
+    const lum = Math.round(0.299*imgData.data[i]+0.587*imgData.data[i+1]+0.114*imgData.data[i+2]);
+    bins[lum]++;
+  }
+  const max = Math.max(...bins);
+  const W = canvas.width;
+
+  const grad = ctx.createLinearGradient(0,0,W,0);
+  grad.addColorStop(0,'rgba(232,200,74,0.3)');
+  grad.addColorStop(0.5,'rgba(232,200,74,0.7)');
+  grad.addColorStop(1,'rgba(232,120,74,0.5)');
+  ctx.fillStyle = grad;
+
+  for (let i = 0; i < 256; i++) {
+    const x = Math.floor(i / 256 * W);
+    const h = Math.round((bins[i] / max) * 44);
+    ctx.fillRect(x, 48-h, Math.max(1, W/256), h);
+  }
+}
+
+// ── PROGRESS ─────────────────────────────────────────────
+function showProgress(label, pct) {
+  document.getElementById('progressWrap').classList.add('visible');
+  document.getElementById('progressLabel').textContent = label;
+  document.getElementById('progressFill').style.width = pct + '%';
+}
+function hideProgress() {
+  document.getElementById('progressWrap').classList.remove('visible');
+}
+
+// ── EXPORT ───────────────────────────────────────────────
+function exportImage() {
+  if (!enhancedImageData) return;
+  const canvas = document.createElement('canvas');
+  canvas.width = enhancedImageData.width;
+  canvas.height = enhancedImageData.height;
+  canvas.getContext('2d').putImageData(enhancedImageData, 0, 0);
+  const a = document.createElement('a');
+  a.href = canvas.toDataURL('image/png');
+  a.download = 'LENS_enhanced.png';
+  a.click();
+}
+
+// ── UI HELPERS ───────────────────────────────────────────
+function updateVal(el, valId) {
+  document.getElementById(valId).textContent = el.value;
+}
+
+function setStatus(msg, state) {
+  const pill = document.getElementById('statusPill');
+  pill.textContent = msg;
+  pill.className = 'status-pill';
+  if (state === true) pill.classList.add('active');
+  if (state === 'processing') pill.classList.add('processing');
+}
+</script>
+
+<script>if("serviceWorker"in navigator)navigator.serviceWorker.register("sw.js");</script>
+</body>
+</html>
